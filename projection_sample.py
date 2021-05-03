@@ -5,21 +5,57 @@ import numpy as np
 from scipy.spatial import distance
 from tqdm import tqdm
 
-def compute_energy(data, proj_plane):
+def compute_energy(data, proj_plane, norm=False):
     E = 0
+    eps = 0.01
     for i in range(N):
         for j in range(N):
+            
+            if norm and i == j:
+                continue
+                
             hd = distance.hamming(data[i,:], data[j,:])
             ed = distance.euclidean(proj_plane[i,:], proj_plane[j,:])
-            E += (ed-hd)**2
+            if norm:
+                E += ((ed-hd) / (hd + eps))**2
+            else:
+                E += (ed-hd)**2
     return E
 
-def run(data, epochs, step, T):
+
+@jit(nopython=True)
+def c_compute_energy(data, proj_plane, norm=False):
+    E = 0
+    eps = 0.01
+    for i in range(N):
+        for j in range(N):
+            
+            if norm and i == j:
+                continue
+                
+            hd = np.sum((data[i,:] != data[j,:]).flatten()) / data.shape[1]
+            ed = np.sqrt(
+                np.sum(
+                    np.square((proj_plane[i,:] - proj_plane[j,:]).flatten())
+                )
+            )
+            if norm:
+                E += ((ed-hd) / (hd + eps))**2
+            else:
+                E += (ed-hd)**2
+    return E
+
+
+def run(data, epochs, step, T, norm=False, init_plane=None):
     
     N = data.shape[0]
     
-    curr_pos = np.random.uniform(size=(N,2))
-    curr_E = compute_energy(data, curr_pos)
+    if init_plane is None:
+        curr_pos = np.random.uniform(size=(N,2))
+    else:
+        curr_pos = init_plane.copy()
+    curr_E = c_compute_energy(data, curr_pos, norm)
+    
 
     accepted_energy = np.zeros(epochs)
     rejected_energy = np.zeros(epochs)
@@ -34,7 +70,8 @@ def run(data, epochs, step, T):
         ]).reshape(-1,2)
 
         new_pos = curr_pos + delta
-        new_E = compute_energy(data, new_pos)
+        new_E = c_compute_energy(data, new_pos, norm)
+
         delta_E = (new_E - curr_E)
         if delta_E > 0:
             p = np.exp(-delta_E/T(t))
@@ -48,6 +85,8 @@ def run(data, epochs, step, T):
             else:
                 rejected_energy[t] = new_E
                 #print('decline')
+        elif delta_E == 0:
+            rejected_energy[t] = 0
         else:
             #print('accept 2')
             curr_E = new_E
