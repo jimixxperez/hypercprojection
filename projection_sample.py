@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 
+from numba import jit
 from scipy.spatial import distance
 from tqdm import tqdm
 
